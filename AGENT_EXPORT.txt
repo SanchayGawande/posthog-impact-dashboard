@@ -1,0 +1,45 @@
+AGENT_EXPORT.txt
+==================
+
+Engineering Impact Dashboard — Agent Work Session Export
+Date: 2026-03-04
+
+OBJECTIVE:
+Build a single-page Streamlit dashboard identifying the top 5 most impactful engineers
+in the PostHog/posthog GitHub repository over the last 90 days, deployed on Render.
+
+FILES CREATED:
+1. requirements.txt — Pinned dependencies (streamlit, requests, pandas, plotly)
+2. render.yaml — Render Blueprint with Python 3.11.11, GITHUB_TOKEN env var
+3. .streamlit/config.toml — Dark theme, headless mode, CORS disabled
+4. .gitignore — Excludes __pycache__, data_export/, .env
+5. README.md — Setup and deployment instructions
+6. github_client.py — GitHub GraphQL API client with:
+   - Paginated merged PR fetching (last 90 days)
+   - Per-PR review fetching with self-review exclusion
+   - Closed issues fetching by assignee
+   - Bot exclusion (dependabot, github-actions, [bot])
+   - 30-min caching via @st.cache_data
+   - Graceful error handling for rate limits (403)
+7. impact_model.py — 3-component scoring model:
+   - Shipped Impact (50%): log₂ PR size + comment bonus, issue-close/priority multipliers
+   - Collaboration Impact (35%): review weight + depth bonus
+   - Operational Impact (15%): issues closed + merge velocity
+   - All parameters adjustable via sidebar sliders
+   - Diminishing returns via log₂ scaling
+   - Methodology text generator
+8. app.py — Full Streamlit dashboard:
+   - Header with title, date window, token status badge
+   - 4 metric cards
+   - Top 5 table with expandable score breakdowns
+   - Engineer drilldown (top PRs, reviews, weekly trend chart)
+   - 14 sidebar sliders for model parameters
+   - Methodology expander
+   - CSV export buttons + local file writes
+9. SESSION_LOG.md — Development session log
+10. AGENT_EXPORT.txt — This file
+
+DEPLOYMENT:
+- Platform: Render (free tier)
+- URL: TBD after deployment
+- Env var: GITHUB_TOKEN required for full API access (5,000 req/hr)
