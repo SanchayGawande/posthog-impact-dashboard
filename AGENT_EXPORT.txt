@@ -3,43 +3,118 @@ AGENT_EXPORT.txt
 
 Engineering Impact Dashboard — Agent Work Session Export
 Date: 2026-03-04
+Duration: ~1 hour
 
-OBJECTIVE:
-Build a single-page Streamlit dashboard identifying the top 5 most impactful engineers
-in the PostHog/posthog GitHub repository over the last 90 days, deployed on Render.
+========================================================================
+OBJECTIVE
+========================================================================
+Build a single-page Streamlit dashboard identifying the top 5 most impactful
+engineers in the PostHog/posthog GitHub repository over the last 90 days,
+deployed on Render.
 
-FILES CREATED:
-1. requirements.txt — Pinned dependencies (streamlit, requests, pandas, plotly)
-2. render.yaml — Render Blueprint with Python 3.11.11, GITHUB_TOKEN env var
-3. .streamlit/config.toml — Dark theme, headless mode, CORS disabled
-4. .gitignore — Excludes __pycache__, data_export/, .env
-5. README.md — Setup and deployment instructions
-6. github_client.py — GitHub GraphQL API client with:
-   - Paginated merged PR fetching (last 90 days)
-   - Per-PR review fetching with self-review exclusion
-   - Closed issues fetching by assignee
-   - Bot exclusion (dependabot, github-actions, [bot])
-   - 30-min caching via @st.cache_data
-   - Graceful error handling for rate limits (403)
-7. impact_model.py — 3-component scoring model:
-   - Shipped Impact (50%): log₂ PR size + comment bonus, issue-close/priority multipliers
-   - Collaboration Impact (35%): review weight + depth bonus
-   - Operational Impact (15%): issues closed + merge velocity
-   - All parameters adjustable via sidebar sliders
-   - Diminishing returns via log₂ scaling
-   - Methodology text generator
-8. app.py — Full Streamlit dashboard:
-   - Header with title, date window, token status badge
-   - 4 metric cards
-   - Top 5 table with expandable score breakdowns
-   - Engineer drilldown (top PRs, reviews, weekly trend chart)
-   - 14 sidebar sliders for model parameters
-   - Methodology expander
-   - CSV export buttons + local file writes
-9. SESSION_LOG.md — Development session log
-10. AGENT_EXPORT.txt — This file
+========================================================================
+FILES CREATED / MODIFIED
+========================================================================
 
-DEPLOYMENT:
-- Platform: Render (free tier)
-- URL: TBD after deployment
-- Env var: GITHUB_TOKEN required for full API access (5,000 req/hr)
+1. requirements.txt
+   - Pinned: streamlit==1.41.1, requests==2.32.3, pandas==2.2.3, plotly==6.0.0
+
+2. render.yaml
+   - Render Blueprint: Python 3.11.11, build/start commands, GITHUB_TOKEN env var
+
+3. .streamlit/config.toml
+   - Dark theme (PostHog orange #FF694A), headless, CORS disabled
+
+4. .gitignore
+   - Excludes: __pycache__/, data_export/, .env, venv/
+
+5. github_client.py (329 lines)
+   - GraphQL pagination: PRs + reviews in single query (~30 API calls)
+   - Bot exclusion: regex for [bot], dependabot, github-actions
+   - Self-review exclusion
+   - Closed-issues query with assignee extraction
+   - @st.cache_data(ttl=1800) — 30-min cache
+   - Rate limit (403) error handling with reset timestamp
+   - token_status() for UI badge
+
+6. impact_model.py (276 lines)
+   - 3-component scoring:
+     A) Shipped (50%): PR size (log₂, capped at 8) + comment bonus + issue-close ×1.5 + priority-label ×1.3
+     B) Collaboration (35%): review weight (base/approved) + depth bonus (body len / 200)
+     C) Operational (15%): issues closed (log₂ × 5) + merge velocity (inverse median hours)
+   - Diminishing returns: log₂(1 + raw_sum) × 10
+   - 14 adjustable parameters via DEFAULT_PARAMS
+   - methodology_text() generates plain-English explanation
+
+7. app.py (318 lines)
+   - Page config: wide layout, dark theme
+   - CSS: header overlap fix (padding-top: 1.5rem), compact metrics/tables
+   - Sidebar: 14 sliders with weight normalization
+   - Header: title + date window + token badge
+   - KPI cards: PRs Merged, Engineers, Reviews, Issues Closed
+   - Main layout (3:2):
+     Left — Top 5 table + per-engineer breakdown expanders
+     Right — Drilldown: top 3 PRs (with GitHub links, sizes, labels), top 3 reviews, weekly area chart
+   - Bottom: methodology expander + 3 CSV download buttons
+   - Local file exports to data_export/
+
+8. README.md
+   - Feature list, layout table, local run instructions, Render deploy guide
+
+9. SESSION_LOG.md
+   - Timestamped development log
+
+10. FINAL_SUBMISSION.md
+    - Email content for submission to kevin@workweave.ai
+
+11. AGENT_EXPORT.txt (this file)
+
+========================================================================
+KEY DESIGN DECISIONS
+========================================================================
+
+1. SINGLE QUERY OPTIMIZATION
+   Reviews fetched inline with PRs in one paginated GraphQL query.
+   Reduced API calls from ~1500 (one per PR) to ~30 (30 PRs per page).
+
+2. DIMINISHING RETURNS
+   All raw scores passed through log₂(1 + x) × 10.
+   Prevents gaming: 100 small PRs ≠ 100× one PR.
+
+3. CAPPED INPUTS
+   PR size capped at log₂ value of 8 (~255 lines).
+   Comments capped at 10. Review depth capped at 5.
+   Prevents outlier dominance from mega-PRs.
+
+4. WEIGHT NORMALIZATION
+   Sidebar sliders auto-normalize shipped + collab + ops = 100%.
+   User can explore parameter sensitivity without breaking totals.
+
+5. CACHE STRATEGY
+   @st.cache_data(ttl=1800): data fetched once per 30 min.
+   Slider changes recompute scores instantly (no API re-fetch).
+
+6. BOT EXCLUSION
+   Regex pattern: [bot]$ | dependabot | github-actions.
+   Applied to both PR authors and reviewers.
+
+========================================================================
+DEPLOYMENT
+========================================================================
+- Platform: Render (free tier web service)
+- Repo: github.com/SanchayGawande/posthog-impact-dashboard
+- Live: https://posthog-impact-dashboard.onrender.com
+- Env var: GITHUB_TOKEN (GitHub PAT for 5,000 req/hr API access)
+
+========================================================================
+VERIFICATION
+========================================================================
+✓ Top 5 engineers displayed with scored rankings
+✓ All PR/review links open correctly to GitHub
+✓ Time window = 90 days (verified in header)
+✓ Bot accounts excluded (no dependabot, github-actions, [bot])
+✓ No header overlap or text merge issues
+✓ CSV exports download correctly (summary, PRs, reviews)
+✓ Sidebar sliders recompute scores without re-fetching data
+✓ Methodology expander shows current parameter values
+✓ Deployed and accessible on Render

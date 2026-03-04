@@ -68,3 +68,6 @@ Your public URL will be: `https://posthog-impact-dashboard.onrender.com`
 | `impact_model.py` | 3-component scoring with diminishing returns |
 | `render.yaml` | Render deployment blueprint |
 | `requirements.txt` | Python dependencies |
+| `FINAL_SUBMISSION.md` | Submission email content |
+| `SESSION_LOG.md` | Step-by-step development session log |
+| `AGENT_EXPORT.txt` | Full agent transcript / export |
