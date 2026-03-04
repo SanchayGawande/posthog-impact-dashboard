@@ -13,69 +13,67 @@ import streamlit as st
 from github_client import fetch_all_data, fetch_closed_issues, token_status
 from impact_model import compute_all_scores, DEFAULT_PARAMS, methodology_text
 
-# ─── Page Config ──────────────────────────────────────────────────────
+# ─── Page Config (must be first Streamlit call) ──────────────────────
 st.set_page_config(
-    page_title="PostHog Engineering Impact Dashboard",
+    page_title="PostHog Engineering Impact",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── Font Awesome CDN ─────────────────────────────────────────────────
-st.markdown(
-    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">',
-    unsafe_allow_html=True,
-)
-
-def fa(name: str, extra_style: str = "") -> str:
-    """Return an inline Font Awesome icon HTML snippet."""
-    style = f' style="{extra_style}"' if extra_style else ""
-    return f'<i class="fa-solid fa-{name}"{style}></i>'
-
-# ─── Custom CSS ───────────────────────────────────────────────────────
+# ─── CSS: Fix header overlap, compact layout ─────────────────────────
 st.markdown("""
 <style>
-    /* Tighter padding */
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    /* Smaller headings */
-    h1 { font-size: 1.6rem !important; margin-bottom: 0.2rem !important; }
-    h2 { font-size: 1.2rem !important; }
-    h3 { font-size: 1.05rem !important; }
-    /* Metric cards */
-    [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
-    [data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
-    /* Compact tables */
+    /* Fix header overlap — proper top spacing */
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 1rem;
+        max-width: 100%;
+    }
+    /* Clean heading spacing — prevent text merge */
+    h1 { font-size: 1.5rem !important; margin-top: 0.25rem !important; margin-bottom: 0.5rem !important; }
+    h2 { font-size: 1.15rem !important; margin-top: 0.25rem !important; margin-bottom: 0.5rem !important; }
+    h3 { font-size: 1.0rem !important; margin-top: 0.25rem !important; margin-bottom: 0.4rem !important; }
+    /* Compact metric cards */
+    [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
+    /* Compact table */
     .stDataFrame { font-size: 0.85rem; }
-    /* Badge styling */
+    /* Token badge */
     .token-badge {
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-        margin-top: 0.5rem;
+        padding: 3px 10px; border-radius: 10px; font-size: 0.75rem;
+        font-weight: 600; display: inline-block; margin-top: 0.3rem;
     }
     .token-active { background: #1a3a2a; color: #4ade80; border: 1px solid #22c55e; }
     .token-inactive { background: #3a2a1a; color: #fbbf24; border: 1px solid #f59e0b; }
-    /* Sidebar */
-    [data-testid="stSidebar"] { padding-top: 1rem; }
-    /* Expander */
-    .streamlit-expanderHeader { font-size: 0.9rem !important; }
-    /* FA icon spacing inside markdown */
-    .fa-solid { margin-right: 6px; }
+    /* Sidebar compact */
+    [data-testid="stSidebar"] { padding-top: 0.5rem; }
+    [data-testid="stSidebar"] h3 { font-size: 0.85rem !important; margin-top: 0.5rem !important; }
+    /* Expander compact */
+    .streamlit-expanderHeader { font-size: 0.85rem !important; }
+    /* Remove excess divider spacing */
+    hr { margin-top: 0.5rem !important; margin-bottom: 0.5rem !important; }
+    /* PR list compact */
+    .pr-item { margin-bottom: 0.4rem; line-height: 1.4; }
+    .pr-badge {
+        display: inline-block; padding: 1px 6px; border-radius: 8px;
+        font-size: 0.65rem; font-weight: 500; margin-left: 3px;
+        background: #262730; border: 1px solid #404040; color: #ccc;
+    }
+    .pr-size { color: #888; font-size: 0.75rem; font-family: monospace; }
 </style>
 """, unsafe_allow_html=True)
 
 # ─── Sidebar: Model Parameters ───────────────────────────────────────
-st.sidebar.markdown(f'<h2>{fa("gear")} Model Parameters</h2>', unsafe_allow_html=True)
-st.sidebar.caption("Adjust weights, caps, and bonuses. Scores update instantly.")
+st.sidebar.markdown("## ⚙️ Model Parameters")
+st.sidebar.caption("Scores update instantly when you adjust sliders.")
 
 params = DEFAULT_PARAMS.copy()
 
-st.sidebar.markdown("### Component Weights")
-params["shipped_weight"] = st.sidebar.slider("Shipped Weight", 0.0, 1.0, DEFAULT_PARAMS["shipped_weight"], 0.05)
-params["collab_weight"] = st.sidebar.slider("Collaboration Weight", 0.0, 1.0, DEFAULT_PARAMS["collab_weight"], 0.05)
-params["ops_weight"] = st.sidebar.slider("Operational Weight", 0.0, 1.0, DEFAULT_PARAMS["ops_weight"], 0.05)
+st.sidebar.markdown("### Weights")
+params["shipped_weight"] = st.sidebar.slider("Shipped", 0.0, 1.0, DEFAULT_PARAMS["shipped_weight"], 0.05)
+params["collab_weight"] = st.sidebar.slider("Collaboration", 0.0, 1.0, DEFAULT_PARAMS["collab_weight"], 0.05)
+params["ops_weight"] = st.sidebar.slider("Operational", 0.0, 1.0, DEFAULT_PARAMS["ops_weight"], 0.05)
 
 # Normalize weights
 w_total = params["shipped_weight"] + params["collab_weight"] + params["ops_weight"]
@@ -84,218 +82,209 @@ if w_total > 0:
     params["collab_weight"] /= w_total
     params["ops_weight"] /= w_total
 
-st.sidebar.markdown("### Shipped Impact")
+st.sidebar.markdown("### Shipped Caps")
 params["pr_size_cap"] = st.sidebar.slider("PR Size Cap", 1.0, 15.0, DEFAULT_PARAMS["pr_size_cap"], 0.5)
 params["comment_cap"] = st.sidebar.slider("Comment Cap", 1, 30, DEFAULT_PARAMS["comment_cap"], 1)
 params["comment_weight"] = st.sidebar.slider("Comment Weight", 0.0, 1.0, DEFAULT_PARAMS["comment_weight"], 0.05)
 params["issue_close_bonus"] = st.sidebar.slider("Issue Close Bonus", 1.0, 3.0, DEFAULT_PARAMS["issue_close_bonus"], 0.1)
 params["priority_label_bonus"] = st.sidebar.slider("Priority Label Bonus", 1.0, 3.0, DEFAULT_PARAMS["priority_label_bonus"], 0.1)
 
-st.sidebar.markdown("### Collaboration Impact")
-params["review_base_weight"] = st.sidebar.slider("Review Base Weight", 0.0, 3.0, DEFAULT_PARAMS["review_base_weight"], 0.1)
-params["review_approved_weight"] = st.sidebar.slider("Review Approved Weight", 0.0, 3.0, DEFAULT_PARAMS["review_approved_weight"], 0.1)
-params["review_depth_cap"] = st.sidebar.slider("Review Depth Cap", 1, 10, DEFAULT_PARAMS["review_depth_cap"], 1)
-params["collab_comment_weight"] = st.sidebar.slider("Review Depth Weight", 0.0, 1.0, DEFAULT_PARAMS["collab_comment_weight"], 0.05)
+st.sidebar.markdown("### Review Caps")
+params["review_base_weight"] = st.sidebar.slider("Review Base Wt", 0.0, 3.0, DEFAULT_PARAMS["review_base_weight"], 0.1)
+params["review_approved_weight"] = st.sidebar.slider("Approved Wt", 0.0, 3.0, DEFAULT_PARAMS["review_approved_weight"], 0.1)
+params["review_depth_cap"] = st.sidebar.slider("Depth Cap", 1, 10, DEFAULT_PARAMS["review_depth_cap"], 1)
+params["collab_comment_weight"] = st.sidebar.slider("Depth Weight", 0.0, 1.0, DEFAULT_PARAMS["collab_comment_weight"], 0.05)
 
-st.sidebar.markdown("### Operational Impact")
-params["issue_close_weight"] = st.sidebar.slider("Issue Close Weight", 0.0, 2.0, DEFAULT_PARAMS["issue_close_weight"], 0.1)
-params["velocity_weight"] = st.sidebar.slider("Velocity Weight", 0.0, 1.0, DEFAULT_PARAMS["velocity_weight"], 0.05)
+st.sidebar.markdown("### Operational")
+params["issue_close_weight"] = st.sidebar.slider("Issue Close Wt", 0.0, 2.0, DEFAULT_PARAMS["issue_close_weight"], 0.1)
+params["velocity_weight"] = st.sidebar.slider("Velocity Wt", 0.0, 1.0, DEFAULT_PARAMS["velocity_weight"], 0.05)
 
-# ─── Header Row ───────────────────────────────────────────────────────
-h1, h2, h3 = st.columns([3, 2, 2])
-with h1:
-    st.markdown(f'<h1>{fa("rocket")} PostHog Engineering Impact</h1>', unsafe_allow_html=True)
-    st.caption("Top 5 most impactful engineers · Last 90 days")
-with h2:
+# =====================================================================
+# A) HEADER — Title left, time window + token badge right
+# =====================================================================
+header_left, header_right = st.columns([3, 2])
+with header_left:
+    st.markdown("# 🚀 PostHog Engineering Impact")
+    st.caption("Top 5 most impactful engineers · last 90 days · PostHog/posthog")
+with header_right:
     now = datetime.datetime.utcnow()
     window_start = now - datetime.timedelta(days=90)
-    st.markdown(f'**{fa("calendar-days")} Window:** {window_start.strftime("%b %d")} — {now.strftime("%b %d, %Y")}', unsafe_allow_html=True)
-    st.caption(f"Last refreshed: {now.strftime('%Y-%m-%d %H:%M UTC')}")
-with h3:
     is_active, status_msg = token_status()
     badge_class = "token-active" if is_active else "token-inactive"
-    st.markdown(f'<div class="token-badge {badge_class}">{status_msg}</div>', unsafe_allow_html=True)
 
-st.divider()
+    st.markdown(
+        f"**📅** {window_start.strftime('%b %d')} — {now.strftime('%b %d, %Y')}  "
+        f"&nbsp;&nbsp;"
+        f'<span class="token-badge {badge_class}">{status_msg}</span>',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Refreshed {now.strftime('%H:%M UTC')}")
 
-# ─── Data Fetching ───────────────────────────────────────────────────
+# =====================================================================
+# DATA FETCHING (cached — no re-fetch on slider change)
+# =====================================================================
 try:
     prs_df, reviews_df = fetch_all_data(days=90)
     issues_df = fetch_closed_issues(days=90)
-
     data_loaded = True
 except RuntimeError as e:
-    st.error(f"{e}")
+    st.error(f"🚨 {e}")
     data_loaded = False
     prs_df = pd.DataFrame()
     reviews_df = pd.DataFrame()
     issues_df = pd.DataFrame()
 
-# ─── Metric Cards ─────────────────────────────────────────────────────
-if data_loaded:
-    m1, m2, m3, m4 = st.columns(4)
-    total_prs = len(prs_df)
-    total_reviews = len(reviews_df)
-    total_issues = len(issues_df)
-    engineers_active = len(set(
-        list(prs_df["author"].unique() if not prs_df.empty else []) +
-        list(reviews_df["reviewer"].unique() if not reviews_df.empty else [])
-    ))
+if not data_loaded:
+    st.stop()
 
-    with m1:
-        st.markdown(f'{fa("cube")} **PRs Merged**', unsafe_allow_html=True)
-        st.metric(label="PRs Merged", value=total_prs, label_visibility="collapsed")
-    with m2:
-        st.markdown(f'{fa("magnifying-glass")} **Code Reviews**', unsafe_allow_html=True)
-        st.metric(label="Code Reviews", value=total_reviews, label_visibility="collapsed")
-    with m3:
-        st.markdown(f'{fa("bullseye")} **Issues Closed**', unsafe_allow_html=True)
-        st.metric(label="Issues Closed", value=total_issues, label_visibility="collapsed")
-    with m4:
-        st.markdown(f'{fa("users")} **Engineers Active**', unsafe_allow_html=True)
-        st.metric(label="Engineers Active", value=engineers_active, label_visibility="collapsed")
+# =====================================================================
+# B) KPI CARDS — compact row
+# =====================================================================
+total_prs = len(prs_df)
+total_reviews = len(reviews_df)
+total_issues = len(issues_df)
+engineers_active = len(set(
+    list(prs_df["author"].unique() if not prs_df.empty else []) +
+    list(reviews_df["reviewer"].unique() if not reviews_df.empty else [])
+))
 
-    st.divider()
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("📦 PRs Merged", f"{total_prs:,}")
+k2.metric("👷 Engineers", f"{engineers_active:,}")
+k3.metric("🔍 Reviews", f"{total_reviews:,}")
+k4.metric("🎯 Issues Closed", f"{total_issues:,}")
 
-# ─── Scoring ──────────────────────────────────────────────────────────
-if data_loaded:
-    scores_df = compute_all_scores(prs_df, reviews_df, issues_df, params)
-    top5 = scores_df.head(5).copy()
+st.markdown("---")
 
-    if top5.empty:
-        st.warning("No engineer data found for the selected time window.")
+# =====================================================================
+# SCORING (recomputed on slider change — no re-fetch)
+# =====================================================================
+scores_df = compute_all_scores(prs_df, reviews_df, issues_df, params)
+top5 = scores_df.head(5).copy()
+
+if top5.empty:
+    st.warning("No engineer data found for the selected time window.")
+    st.stop()
+
+# =====================================================================
+# C) MAIN CONTENT — two columns
+# =====================================================================
+col_table, col_drill = st.columns([3, 2], gap="large")
+
+# ── Left: Top 5 Table + Score Breakdowns ──────────────────────────────
+with col_table:
+    st.markdown("### 🏆 Top 5 Engineers")
+
+    display_cols = ["Engineer", "Total Impact", "Shipped", "Collaboration", "Operational"]
+    st.dataframe(
+        top5[display_cols],
+        use_container_width=True,
+        hide_index=True,
+        height=220,
+        column_config={
+            "Total Impact": st.column_config.NumberColumn(format="%.1f"),
+            "Shipped": st.column_config.NumberColumn(format="%.1f"),
+            "Collaboration": st.column_config.NumberColumn(format="%.1f"),
+            "Operational": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
+
+    # Compact score breakdowns
+    for _, row in top5.iterrows():
+        with st.expander(f"📊 {row['Engineer']} — {row['Total Impact']:.1f} pts"):
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                st.metric("Shipped", f"{row['Shipped']:.1f}", help=f"Raw: {row['_shipped_raw']:.1f} → log₂ diminished")
+                st.caption(f"{row['PRs Merged']} PRs · wt {params['shipped_weight']:.0%}")
+            with b2:
+                st.metric("Collab", f"{row['Collaboration']:.1f}", help=f"Raw: {row['_collab_raw']:.1f} → log₂ diminished")
+                st.caption(f"{row['Reviews Given']} reviews · wt {params['collab_weight']:.0%}")
+            with b3:
+                st.metric("Ops", f"{row['Operational']:.1f}", help=f"Issues: {row['_ops_issues_score']:.1f} + Velocity: {row['_ops_velocity_score']:.1f}")
+                st.caption(f"{row['_issues_closed']} issues · {row['_median_merge_hours']:.0f}h merge")
+
+# ── Right: Engineer Drilldown ─────────────────────────────────────────
+with col_drill:
+    st.markdown("### 🔎 Drilldown")
+
+    selected = st.selectbox("Engineer", top5["Engineer"].tolist(), label_visibility="collapsed")
+    eng_row = top5[top5["Engineer"] == selected].iloc[0]
+
+    # Top 3 Merged PRs
+    st.markdown("**Top PRs**")
+    pr_scores = eng_row["_pr_scores"]
+    if pr_scores:
+        sorted_prs = sorted(pr_scores, key=lambda x: x["score"], reverse=True)[:3]
+        for ps in sorted_prs:
+            pr_info = prs_df[prs_df["number"] == ps["number"]]
+            if not pr_info.empty:
+                pr = pr_info.iloc[0]
+                title_short = ps["title"][:60] + ("…" if len(ps["title"]) > 60 else "")
+                labels_html = "".join(
+                    f'<span class="pr-badge">{l}</span>' for l in (pr["labels"] or [])
+                )
+                st.markdown(
+                    f'[{title_short}]({pr["url"]}) · '
+                    f'<span class="pr-size">+{pr["additions"]}/-{pr["deletions"]}</span> · '
+                    f'**{ps["score"]:.1f}** pts {labels_html}',
+                    unsafe_allow_html=True,
+                )
     else:
-        # ─── Two-Column Layout ────────────────────────────────────────
-        left_col, right_col = st.columns([1, 1], gap="large")
+        st.caption("No PRs")
 
-        # ─── Left: Top 5 Table ────────────────────────────────────────
-        with left_col:
-            st.markdown(f'<h3>{fa("trophy")} Top 5 Engineers</h3>', unsafe_allow_html=True)
+    st.markdown("---")
 
-            display_cols = ["Engineer", "Total Impact", "Shipped", "Collaboration", "Operational", "PRs Merged", "Reviews Given"]
-            st.dataframe(
-                top5[display_cols],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Total Impact": st.column_config.NumberColumn(format="%.2f"),
-                    "Shipped": st.column_config.NumberColumn(format="%.2f"),
-                    "Collaboration": st.column_config.NumberColumn(format="%.2f"),
-                    "Operational": st.column_config.NumberColumn(format="%.2f"),
-                },
-            )
+    # Top 3 Reviews
+    st.markdown("**Top Reviews**")
+    review_scores = eng_row["_review_scores"]
+    if review_scores:
+        sorted_reviews = sorted(review_scores, key=lambda x: x["score"], reverse=True)[:3]
+        for rs in sorted_reviews:
+            icon = "✅" if rs["state"] == "APPROVED" else "💬"
+            url = rs.get("url", "")
+            link = f"[#{rs['pr_number']}]({url})" if url else f"#{rs['pr_number']}"
+            st.markdown(f"{icon} {rs['state']} on {link} — **{rs['score']:.1f}** pts")
+    else:
+        st.caption("No reviews")
 
-            # Score breakdown expanders
-            st.markdown("#### Score Breakdowns")
-            for _, row in top5.iterrows():
-                with st.expander(f"{row['Engineer']} — Total: {row['Total Impact']:.2f}"):
-                    st.markdown(f"""
-**Shipped Impact**: {row['Shipped']:.2f}
-- Raw PR score sum: {row['_shipped_raw']:.2f} → Diminished: log₂(1 + {row['_shipped_raw']:.2f}) × 10 = {row['Shipped']:.2f}
-- PRs merged: {row['PRs Merged']}
-- Weighted: {params['shipped_weight']:.0%} × {row['Shipped']:.2f} = {params['shipped_weight'] * row['Shipped']:.2f}
+    st.markdown("---")
 
-**Collaboration Impact**: {row['Collaboration']:.2f}
-- Raw review score sum: {row['_collab_raw']:.2f} → Diminished: log₂(1 + {row['_collab_raw']:.2f}) × 10 = {row['Collaboration']:.2f}
-- Reviews given: {row['Reviews Given']}
-- Weighted: {params['collab_weight']:.0%} × {row['Collaboration']:.2f} = {params['collab_weight'] * row['Collaboration']:.2f}
+    # Weekly trend mini chart
+    st.markdown("**Weekly Activity**")
+    eng_prs = prs_df[prs_df["author"] == selected] if not prs_df.empty else pd.DataFrame()
+    if not eng_prs.empty and "merged_at" in eng_prs.columns:
+        weekly = eng_prs.set_index("merged_at").resample("W").size().reset_index(name="PRs")
+        weekly.columns = ["Week", "PRs"]
+        fig = px.area(
+            weekly, x="Week", y="PRs",
+            template="plotly_dark",
+            color_discrete_sequence=["#FF694A"],
+        )
+        fig.update_layout(
+            height=180,
+            margin=dict(l=0, r=0, t=5, b=0),
+            xaxis_title="", yaxis_title="",
+            showlegend=False,
+        )
+        fig.update_traces(line_shape="spline")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.caption("No trend data")
 
-**Operational Impact**: {row['Operational']:.2f}
-- Issues score: {row['_ops_issues_score']:.2f} (closed: {row['_issues_closed']})
-- Velocity score: {row['_ops_velocity_score']:.2f} (median merge: {row['_median_merge_hours']:.1f}h)
-- Weighted: {params['ops_weight']:.0%} × {row['Operational']:.2f} = {params['ops_weight'] * row['Operational']:.2f}
-""")
+# =====================================================================
+# D) BOTTOM — Methodology + Exports
+# =====================================================================
+st.markdown("---")
 
-        # ─── Right: Engineer Drilldown ─────────────────────────────────
-        with right_col:
-            st.markdown(f'<h3>{fa("microscope")} Engineer Drilldown</h3>', unsafe_allow_html=True)
+bot_left, bot_right = st.columns([1, 1])
 
-            selected = st.selectbox(
-                "Select engineer",
-                top5["Engineer"].tolist(),
-                key="drilldown_select",
-            )
-
-            eng_row = top5[top5["Engineer"] == selected].iloc[0]
-
-            # Top 3 Merged PRs
-            st.markdown(f'##### {fa("code-merge")} Top Merged PRs', unsafe_allow_html=True)
-            pr_scores = eng_row["_pr_scores"]
-            if pr_scores:
-                sorted_prs = sorted(pr_scores, key=lambda x: x["score"], reverse=True)[:3]
-                for i, ps in enumerate(sorted_prs, 1):
-                    pr_info = prs_df[prs_df["number"] == ps["number"]]
-                    if not pr_info.empty:
-                        pr = pr_info.iloc[0]
-                        labels_str = ", ".join(pr["labels"]) if pr["labels"] else "none"
-                        flags = []
-                        if pr.get("body") and "Fixes #" in str(pr["body"]):
-                            flags.append(f'{fa("bug")} Fixes issue')
-                        if pr.get("body") and "Closes #" in str(pr["body"]):
-                            flags.append(f'{fa("circle-check")} Closes issue')
-                        flags_str = " | ".join(flags) if flags else ""
-                        st.markdown(
-                            f"{i}. [{ps['title']}]({pr['url']}) — **{ps['score']:.1f}** pts\n"
-                            f"   `+{pr['additions']}/-{pr['deletions']}` · Labels: {labels_str}"
-                            + (f" · {flags_str}" if flags_str else ""),
-                            unsafe_allow_html=True,
-                        )
-            else:
-                st.caption("No merged PRs found.")
-
-            st.markdown("---")
-
-            # Top 3 Review Contributions
-            st.markdown(f'##### {fa("code-compare")} Top Review Contributions', unsafe_allow_html=True)
-            review_scores = eng_row["_review_scores"]
-            if review_scores:
-                sorted_reviews = sorted(review_scores, key=lambda x: x["score"], reverse=True)[:3]
-                for i, rs in enumerate(sorted_reviews, 1):
-                    state_icon = fa("circle-check") if rs["state"] == "APPROVED" else fa("comment")
-                    url = rs.get("url", "")
-                    link = f"[PR #{rs['pr_number']}]({url})" if url else f"PR #{rs['pr_number']}"
-                    st.markdown(f"{i}. {state_icon} {rs['state']} on {link} — **{rs['score']:.1f}** pts", unsafe_allow_html=True)
-            else:
-                st.caption("No reviews found.")
-
-            st.markdown("---")
-
-            # Weekly Impact Trend
-            st.markdown(f'##### {fa("chart-line")} Weekly PR Activity', unsafe_allow_html=True)
-            eng_prs = prs_df[prs_df["author"] == selected] if not prs_df.empty else pd.DataFrame()
-            if not eng_prs.empty and "merged_at" in eng_prs.columns:
-                weekly = eng_prs.set_index("merged_at").resample("W").size().reset_index(name="PRs Merged")
-                weekly.columns = ["Week", "PRs Merged"]
-                fig = px.line(
-                    weekly, x="Week", y="PRs Merged",
-                    markers=True,
-                    template="plotly_dark",
-                    color_discrete_sequence=["#FF694A"],
-                )
-                fig.update_layout(
-                    height=250,
-                    margin=dict(l=0, r=0, t=10, b=0),
-                    xaxis_title="",
-                    yaxis_title="PRs Merged",
-                    showlegend=False,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.caption("No PR data available for trend chart.")
-
-    st.divider()
-
-    # ─── Methodology Expander ─────────────────────────────────────────
-    with st.expander("Methodology — How Impact Scores Are Calculated"):
+with bot_left:
+    with st.expander("📖 Methodology — How Scores Work"):
         st.markdown(methodology_text(params))
 
-    st.divider()
+with bot_right:
+    st.markdown("**📥 Exports**")
 
-    # ─── CSV Exports ──────────────────────────────────────────────────
-    st.markdown(f'<h3>{fa("download")} Data Exports</h3>', unsafe_allow_html=True)
-    e1, e2, e3 = st.columns(3)
-
-    # Prepare export DataFrames
     export_cols = ["Engineer", "Total Impact", "Shipped", "Collaboration", "Operational", "PRs Merged", "Reviews Given"]
     engineer_csv = scores_df[export_cols].to_csv(index=False)
 
@@ -308,14 +297,12 @@ if data_loaded:
 
     reviews_csv = reviews_df.to_csv(index=False) if not reviews_df.empty else ""
 
-    with e1:
-        st.download_button("Engineer Summary", engineer_csv, "engineer_summary.csv", "text/csv")
-    with e2:
-        st.download_button("All PRs", prs_csv, "prs.csv", "text/csv")
-    with e3:
-        st.download_button("All Reviews", reviews_csv, "reviews.csv", "text/csv")
+    e1, e2, e3 = st.columns(3)
+    e1.download_button("📊 Summary", engineer_csv, "engineer_summary.csv", "text/csv", use_container_width=True)
+    e2.download_button("📦 PRs", prs_csv, "prs.csv", "text/csv", use_container_width=True)
+    e3.download_button("🔍 Reviews", reviews_csv, "reviews.csv", "text/csv", use_container_width=True)
 
-    # Write to local data_export/ folder
+    # Local file writes (non-critical)
     os.makedirs("data_export", exist_ok=True)
     try:
         with open("data_export/engineer_summary.csv", "w") as f:
@@ -327,4 +314,4 @@ if data_loaded:
             with open("data_export/reviews.csv", "w") as f:
                 f.write(reviews_csv)
     except Exception:
-        pass  # Non-critical — don't fail the app for file writes
+        pass

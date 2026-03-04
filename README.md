@@ -4,46 +4,67 @@ A single-page Streamlit dashboard that identifies the **top 5 most impactful eng
 
 ## Features
 
-- **Explainable Impact Scoring** — 3-component model (Shipped 50%, Collaboration 35%, Operational 15%) with all formulas visible
-- **Real GitHub Data** — fetched via GitHub GraphQL API with 30-minute caching
-- **Interactive Parameters** — adjust all weights and caps via sidebar sliders
-- **Engineer Drilldown** — top PRs, reviews, and weekly trend charts
-- **CSV Exports** — download `engineer_summary.csv`, `prs.csv`, `reviews.csv`
-- **Bot Exclusion** — filters out dependabot, github-actions, and `[bot]` accounts
+- **3-component scoring model**: Shipped (50%) + Collaboration (35%) + Operational (15%)
+- **Real GitHub data** via GraphQL API — no mocked or hardcoded data
+- **Fast load** — ~2 minutes first load, <10 seconds on cache (30-min TTL)
+- **Explainable scores** — every metric has a visible breakdown
+- **Adjustable parameters** — sidebar sliders recompute scores instantly without re-fetching
+- **CSV exports** — download engineer summaries, PRs, and reviews
 
-## Local Setup
+## Layout
+
+| Section | Content |
+|---------|---------|
+| **Header** | Title, time window, token status badge |
+| **KPI Cards** | PRs Merged · Engineers · Reviews · Issues Closed |
+| **Main (left)** | Top 5 table + score breakdown expanders |
+| **Main (right)** | Engineer drilldown: top PRs, reviews, weekly chart |
+| **Bottom** | Methodology expander + CSV export buttons |
+
+## Run Locally
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/<your-user>/posthog-impact-dashboard.git
-cd posthog-impact-dashboard
-
-# 2. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# 3. Set your GitHub token
-export GITHUB_TOKEN="ghp_your_token_here"
+# Set your GitHub token
+export GITHUB_TOKEN="ghp_YOUR_TOKEN_HERE"
 
-# 4. Run the dashboard
+# Run
 streamlit run app.py
 ```
 
-Open [http://localhost:8501](http://localhost:8501) in your browser.
+Open [http://localhost:8501](http://localhost:8501).
 
-## Deploy on Render
+## Deploy to Render
 
-1. Push this repo to GitHub.
-2. Go to [Render](https://render.com) → **New** → **Web Service** → connect your GitHub repo.
-3. Render will auto-detect `render.yaml` and configure the service.
-4. Add `GITHUB_TOKEN` as an environment variable in the Render dashboard.
-5. Deploy — the app will be live at `https://posthog-impact-dashboard.onrender.com`.
+### Option A: Render Blueprint (recommended)
 
-## Environment Variables
+1. Push this repo to GitHub
+2. Go to [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint**
+3. Connect your GitHub repo
+4. Render will detect `render.yaml` and configure automatically
+5. Set the environment variable `GITHUB_TOKEN` in the Render dashboard
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITHUB_TOKEN` | Yes (for full data) | GitHub Personal Access Token with `repo` scope |
+### Option B: Manual Web Service
 
-## Tech Stack
+1. Go to [dashboard.render.com](https://dashboard.render.com) → **New** → **Web Service**
+2. Connect your GitHub repo: `SanchayGawande/posthog-impact-dashboard`
+3. Configure:
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true`
+   - **Instance**: Free
+4. Add environment variable: `GITHUB_TOKEN` = your GitHub PAT
+5. Click **Create Web Service**
 
-- Python 3.11, Streamlit, Requests, Pandas, Plotly
+Your public URL will be: `https://posthog-impact-dashboard.onrender.com`
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `app.py` | Streamlit UI — layout, styling, charts |
+| `github_client.py` | GitHub GraphQL API — paginated fetch of PRs, reviews, issues |
+| `impact_model.py` | 3-component scoring with diminishing returns |
+| `render.yaml` | Render deployment blueprint |
+| `requirements.txt` | Python dependencies |
