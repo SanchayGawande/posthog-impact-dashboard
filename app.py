@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from github_client import fetch_merged_prs, fetch_reviews_for_prs, fetch_closed_issues, token_status
+from github_client import fetch_all_data, fetch_closed_issues, token_status
 from impact_model import compute_all_scores, DEFAULT_PARAMS, methodology_text
 
 # ─── Page Config ──────────────────────────────────────────────────────
@@ -120,14 +120,7 @@ st.divider()
 
 # ─── Data Fetching ───────────────────────────────────────────────────
 try:
-    prs_df = fetch_merged_prs(days=90)
-    pr_authors = {}
-    pr_numbers = []
-    if not prs_df.empty:
-        pr_authors = dict(zip(prs_df["number"], prs_df["author"]))
-        pr_numbers = prs_df["number"].tolist()
-
-    reviews_df = fetch_reviews_for_prs(pr_numbers, pr_authors)
+    prs_df, reviews_df = fetch_all_data(days=90)
     issues_df = fetch_closed_issues(days=90)
 
     data_loaded = True

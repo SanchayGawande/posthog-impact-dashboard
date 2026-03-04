@@ -1,6 +1,9 @@
 """
 GitHub GraphQL API client for fetching PostHog repository data.
 Handles pagination, caching, bot exclusion, and graceful error handling.
+
+PERFORMANCE: Reviews are fetched inline with PRs in a single paginated query,
+reducing API calls from ~1500 to ~30.
 """
 
 import os
@@ -66,14 +69,14 @@ def _graphql_request(query: str, variables: dict = None) -> dict:
         raise RuntimeError("GitHub API request timed out. Please try again.")
 
 
-# ─── Merged PRs Query ────────────────────────────────────────────────
+# ─── Combined PRs + Reviews Query (FAST: reviews fetched inline) ─────
 
-MERGED_PRS_QUERY = """
+MERGED_PRS_WITH_REVIEWS_QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(
       states: MERGED,
-      first: 50,
+      first: 30,
       after: $cursor,
       orderBy: {field: UPDATED_AT, direction: DESC}
     ) {
@@ -90,7 +93,15 @@ query($owner: String!, $name: String!, $cursor: String) {
         author { login }
         labels(first: 10) { nodes { name } }
         comments { totalCount }
-        reviewDecisions: reviews(first: 1) { totalCount }
+        reviews(first: 20) {
+          nodes {
+            author { login }
+            state
+            body
+            submittedAt
+            url
+          }
+        }
       }
     }
   }
@@ -98,14 +109,19 @@ query($owner: String!, $name: String!, $cursor: String) {
 """
 
 
-@st.cache_data(ttl=1800, show_spinner="Fetching merged PRs from GitHub...")
-def fetch_merged_prs(days: int = 90) -> pd.DataFrame:
-    """Fetch all merged PRs in the given time window via GraphQL."""
+@st.cache_data(ttl=1800, show_spinner="Fetching data from GitHub (PRs + reviews)...")
+def fetch_all_data(days: int = 90) -> tuple:
+    """Fetch merged PRs AND their reviews in a single paginated query.
+
+    Returns: (prs_df, reviews_df)
+    This is dramatically faster than fetching reviews per-PR separately.
+    """
     since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat() + "Z"
     all_prs = []
+    all_reviews = []
     cursor = None
     page = 0
-    max_pages = 30  # Safety limit
+    max_pages = 60  # With 30 per page, covers ~1800 PRs
 
     try:
         while page < max_pages:
@@ -114,7 +130,7 @@ def fetch_merged_prs(days: int = 90) -> pd.DataFrame:
                 "name": REPO_NAME,
                 "cursor": cursor,
             }
-            data = _graphql_request(MERGED_PRS_QUERY, variables)
+            data = _graphql_request(MERGED_PRS_WITH_REVIEWS_QUERY, variables)
             repo = data.get("data", {}).get("repository", {})
             pr_data = repo.get("pullRequests", {})
             nodes = pr_data.get("nodes", [])
@@ -122,11 +138,11 @@ def fetch_merged_prs(days: int = 90) -> pd.DataFrame:
             if not nodes:
                 break
 
+            past_window = False
             for pr in nodes:
                 merged_at = pr.get("mergedAt", "")
                 if merged_at and merged_at < since:
-                    # We've gone past our time window
-                    page = max_pages  # Break outer loop
+                    past_window = True
                     break
 
                 author = pr.get("author") or {}
@@ -149,8 +165,31 @@ def fetch_merged_prs(days: int = 90) -> pd.DataFrame:
                     "merged_at": merged_at,
                     "labels": labels,
                     "comments": pr.get("comments", {}).get("totalCount", 0),
-                    "review_comments": pr.get("reviewDecisions", {}).get("totalCount", 0),
+                    "review_comments": 0,
                 })
+
+                # Extract reviews inline
+                reviews = pr.get("reviews", {}).get("nodes", [])
+                for review in reviews:
+                    rev_author = review.get("author") or {}
+                    rev_login = rev_author.get("login", "")
+                    if _is_bot(rev_login):
+                        continue
+                    # Exclude self-reviews
+                    if rev_login == login:
+                        continue
+
+                    all_reviews.append({
+                        "pr_number": pr["number"],
+                        "reviewer": rev_login,
+                        "state": review.get("state", ""),
+                        "body": review.get("body", "") or "",
+                        "submitted_at": review.get("submittedAt", ""),
+                        "url": review.get("url", ""),
+                    })
+
+            if past_window:
+                break
 
             page_info = pr_data.get("pageInfo", {})
             if not page_info.get("hasNextPage", False):
@@ -161,15 +200,24 @@ def fetch_merged_prs(days: int = 90) -> pd.DataFrame:
     except RuntimeError:
         raise
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch PRs: {e}")
+        raise RuntimeError(f"Failed to fetch data: {e}")
 
-    if not all_prs:
-        return _empty_pr_df()
+    # Build PRs DataFrame
+    if all_prs:
+        prs_df = pd.DataFrame(all_prs)
+        prs_df["merged_at"] = pd.to_datetime(prs_df["merged_at"], utc=True, errors="coerce")
+        prs_df["created_at"] = pd.to_datetime(prs_df["created_at"], utc=True, errors="coerce")
+    else:
+        prs_df = _empty_pr_df()
 
-    df = pd.DataFrame(all_prs)
-    df["merged_at"] = pd.to_datetime(df["merged_at"], utc=True, errors="coerce")
-    df["created_at"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce")
-    return df
+    # Build Reviews DataFrame
+    if all_reviews:
+        reviews_df = pd.DataFrame(all_reviews)
+        reviews_df["submitted_at"] = pd.to_datetime(reviews_df["submitted_at"], utc=True, errors="coerce")
+    else:
+        reviews_df = _empty_review_df()
+
+    return prs_df, reviews_df
 
 
 def _empty_pr_df() -> pd.DataFrame:
@@ -178,93 +226,6 @@ def _empty_pr_df() -> pd.DataFrame:
         "number", "title", "url", "author", "additions", "deletions",
         "body", "created_at", "merged_at", "labels", "comments", "review_comments"
     ])
-
-
-# ─── Reviews Query ───────────────────────────────────────────────────
-
-REVIEWS_QUERY = """
-query($owner: String!, $name: String!, $prNumber: Int!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $prNumber) {
-      reviews(first: 50, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          author { login }
-          state
-          body
-          submittedAt
-          url
-        }
-      }
-    }
-  }
-}
-"""
-
-
-@st.cache_data(ttl=1800, show_spinner="Fetching code reviews from GitHub...")
-def fetch_reviews_for_prs(pr_numbers: list, pr_authors: dict) -> pd.DataFrame:
-    """Fetch reviews for a list of PR numbers.
-
-    Args:
-        pr_numbers: List of PR numbers to fetch reviews for.
-        pr_authors: Dict mapping PR number to author login (for self-review exclusion).
-    """
-    all_reviews = []
-
-    try:
-        for pr_num in pr_numbers:
-            cursor = None
-            while True:
-                variables = {
-                    "owner": REPO_OWNER,
-                    "name": REPO_NAME,
-                    "prNumber": pr_num,
-                    "cursor": cursor,
-                }
-                data = _graphql_request(REVIEWS_QUERY, variables)
-                repo = data.get("data", {}).get("repository", {})
-                pr_data = repo.get("pullRequest", {})
-                if not pr_data:
-                    break
-                review_data = pr_data.get("reviews", {})
-                nodes = review_data.get("nodes", [])
-
-                for review in nodes:
-                    author = review.get("author") or {}
-                    login = author.get("login", "")
-                    if _is_bot(login):
-                        continue
-                    # Exclude self-reviews
-                    pr_author = pr_authors.get(pr_num, "")
-                    if login == pr_author:
-                        continue
-
-                    all_reviews.append({
-                        "pr_number": pr_num,
-                        "reviewer": login,
-                        "state": review.get("state", ""),
-                        "body": review.get("body", "") or "",
-                        "submitted_at": review.get("submittedAt", ""),
-                        "url": review.get("url", ""),
-                    })
-
-                page_info = review_data.get("pageInfo", {})
-                if not page_info.get("hasNextPage", False):
-                    break
-                cursor = page_info.get("endCursor")
-
-    except RuntimeError:
-        raise
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch reviews: {e}")
-
-    if not all_reviews:
-        return _empty_review_df()
-
-    df = pd.DataFrame(all_reviews)
-    df["submitted_at"] = pd.to_datetime(df["submitted_at"], utc=True, errors="coerce")
-    return df
 
 
 def _empty_review_df() -> pd.DataFrame:
